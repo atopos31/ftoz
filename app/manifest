@@ -1,0 +1,10 @@
+appname=ftoz
+version=0.0.1
+desc=`从fnos迁移到zimaos`
+arch=x86_64
+display_name=ftoz
+maintainer=hackerxiao
+distributor=hackerxiao
+source=thirdparty
+desktop_uidir=ui
+desktop_applaunchname=ftoz.APPLICATION

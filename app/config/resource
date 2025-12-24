@@ -1,0 +1,14 @@
+{
+    "data-share": {
+        "shares": [
+            {
+                "name": "ftoz",
+                "permission": {
+                    "rw": [
+                        "ftoz"
+                    ]
+                }
+            }
+        ]
+    }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "ftoz.server",
+  "scripts": {
+    "dev": "node --watch src/koa.js",
+    "build": "pkg -t node18-linux-x64 ./src/cgi.js --output ../app/app/server/api"
+  },
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "iconv-lite": "^0.7.0",
+    "koa": "^3.1.1",
+    "koa-bodyparser": "^4.4.1"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
