@@ -27,7 +27,7 @@ npm run dev:backend
 
 ## 本地构建
 
-> 请提前安装好 fnpack，如果不希望打包 fpk，可以执行 build:server
+> 请提前安装好 [fnpack](https://developer.fnnas.com/docs/cli/fnpack)，如果不希望打包 fpk，可以执行 build:server
 
 ```bash
 npm run install
