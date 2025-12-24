@@ -68,6 +68,8 @@ POST /cgi/ThirdParty/code.editor/index.cgi?_api=migrate
 ## 用户使用
 ！ 现在只支持第一个存储空间
 1. 在 FNOS 上安装应用。
+点击手动安装 选择编译后的ftoz.fpk文件
+![alt text](image-1.png)
 2. 填写 `Base URL`、用户名、密码，存储名称可留空。
 3. 选择迁移空间（个人空间或团队空间）。
 4. 点击“开始迁移”，等待进度完成。
