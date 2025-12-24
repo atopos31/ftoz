@@ -1,4 +1,4 @@
-# App.Bin.CodeEditor
+# FTOZ
 
 应用包名：ftoz
 
