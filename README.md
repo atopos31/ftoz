@@ -99,7 +99,7 @@ curl -X POST 'http://127.0.0.1:17746/migrate' \
 部署后请改为：
 
 ```
-POST /cgi/ThirdParty/code.editor/index.cgi?_api=migrate
+POST /var/apps/ftoz/target/server/api?_api=migrate
 ```
 
 ## CGI 模式说明
