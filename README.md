@@ -66,8 +66,8 @@ POST /cgi/ThirdParty/code.editor/index.cgi?_api=migrate
 - 默认打包目录为 `/vol1/1000`，可通过设置 `SOURCE_DIR` 环境变量修改
 
 ## 用户使用
-
-1. 在 ZimaOS 上打开应用。
+！ 现在只支持第一个存储空间
+1. 在 FNOS 上安装应用。
 2. 填写 `Base URL`、用户名、密码，存储名称可留空。
 3. 选择迁移空间（个人空间或团队空间）。
 4. 点击“开始迁移”，等待进度完成。
