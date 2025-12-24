@@ -73,6 +73,7 @@ POST /cgi/ThirdParty/code.editor/index.cgi?_api=migrate
 2. 填写 `Base URL`、用户名、密码，存储名称可留空。
 3. 选择迁移空间（个人空间或团队空间）。
 4. 点击“开始迁移”，等待进度完成。
+![alt text](image-2.png)
 5. 迁移完成后，文件将解压到 `/media/<storage>/AppData`（未填写 `storage` 时为 `/media/AppData`）。
 
 说明：
