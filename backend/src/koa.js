@@ -20,9 +20,18 @@ app.use(async (ctx) => {
 
   const { type, body } = await exec(data);
 
-  if (type) {
+  if (type && body.stream) {
     ctx.set("Content-Type", type);
-    ctx.set("Content-Length", body.size);
+    if (body.headers) {
+      Object.entries(body.headers).forEach(([key, value]) => {
+        if (value !== undefined) {
+          ctx.set(key, String(value));
+        }
+      });
+    }
+    if (body.size) {
+      ctx.set("Content-Length", body.size);
+    }
     ctx.body = body.stream;
   } else {
     ctx.set("Content-Type", "application/json; charset=utf-8");

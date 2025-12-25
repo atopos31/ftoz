@@ -73,9 +73,18 @@ async function main() {
 
     const { type, body } = await exec(data);
 
-    if (type) {
+    if (type && body.stream) {
       console.log(`Content-Type: ${type}`);
-      console.log(`Content-Length: ${body.size}`);
+      if (body.headers) {
+        Object.entries(body.headers).forEach(([key, value]) => {
+          if (value !== undefined) {
+            console.log(`${key}: ${value}`);
+          }
+        });
+      }
+      if (body.size) {
+        console.log(`Content-Length: ${body.size}`);
+      }
       console.log("");
       body.stream.pipe(process.stdout);
     } else {

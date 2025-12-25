@@ -4,7 +4,7 @@ const router = {
   read: { type: "file", run: require("../router/read") },
   save: { run: require("../router/save") },
   dir: { run: require("../router/dir") },
-  migrate: { run: require("../router/migrate") },
+  migrate: { type: "stream", run: require("../router/migrate") },
 };
 
 module.exports = async function exec(data) {
@@ -18,7 +18,14 @@ module.exports = async function exec(data) {
 
   if (result.code === 200 && api.type === "file") {
     return { type: getType(result.data.filename), body: result.data };
-  } else {
-    return { body: result };
   }
+
+  if (result.code === 200 && api.type === "stream" && result.stream) {
+    return {
+      type: result.type || "text/event-stream; charset=utf-8",
+      body: { stream: result.stream, headers: result.headers },
+    };
+  }
+
+  return { body: result };
 };

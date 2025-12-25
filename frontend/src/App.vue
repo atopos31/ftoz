@@ -1,7 +1,7 @@
 <template>
   <main class="app">
-    <h1>目录打包迁移到 ZimaOS</h1>
-    <p class="desc">将个人空间或团队空间目录打包成 ZIP，并根据输入的 ZimaOS 信息完成上传、解压与清理。</p>
+    <h1>目录逐个文件迁移到 ZimaOS</h1>
+    <p class="desc">将个人空间或团队空间目录逐个文件上传到 ZimaOS，并保留原始目录结构。</p>
 
     <form class="form" @submit.prevent="handleMigrate">
       <label class="field">
@@ -50,7 +50,7 @@
 
     <p v-if="status.message" :class="['status', status.type]">{{ status.message }}</p>
 
-    <p class="tip">如需变更打包路径，可在部署时设置 <code>SOURCE_DIR</code> 环境变量。</p>
+    <p class="tip">如需变更迁移目录，可在部署时设置 <code>SOURCE_DIR</code> 环境变量。</p>
   </main>
 </template>
 
@@ -72,9 +72,9 @@ const form = reactive({
 
 const steps = reactive([
   { key: 'login', label: '登录 ZimaOS', status: 'pending', message: '' },
-  { key: 'upload', label: '打包并上传', status: 'pending', message: '' },
-  { key: 'decompress', label: '解压 ZIP', status: 'pending', message: '' },
-  { key: 'cleanup', label: '删除 ZIP', status: 'pending', message: '' },
+  { key: 'scan', label: '扫描目录', status: 'pending', message: '' },
+  { key: 'upload', label: '上传文件', status: 'pending', message: '' },
+  { key: 'done', label: '迁移完成', status: 'pending', message: '' },
 ])
 
 const resetSteps = () => {
@@ -127,16 +127,16 @@ const handleMigrate = async () => {
     })
 
     const contentType = response.headers.get('Content-Type') || ''
-    const isNdjson = contentType.includes('application/x-ndjson')
+    const isSse = contentType.includes('text/event-stream')
 
-    if (!response.body || !isNdjson) {
+    if (!response.body || !isSse) {
       const result = await response.json()
       if (!response.ok || result.code !== 200) {
         throw new Error(result.msg || '迁移失败')
       }
 
       status.type = 'success'
-      status.message = `迁移完成：${result.data?.zipPath || '已上传并解压'}`
+      status.message = result.msg || '迁移完成'
       steps.forEach((step) => (step.status = 'success'))
       return
     }
@@ -144,20 +144,58 @@ const handleMigrate = async () => {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let eventType = ''
+    let dataLines: string[] = []
 
-    const handlePayload = (payload: any) => {
-      if (!payload) {
+    const dispatchEvent = () => {
+      if (!dataLines.length) {
+        eventType = ''
         return
       }
 
-      if (payload.type === 'progress') {
+      const dataStr = dataLines.join('\n')
+      dataLines = []
+      const eventName = eventType || 'message'
+      eventType = ''
+
+      let payload: any
+      try {
+        payload = JSON.parse(dataStr)
+      } catch {
+        return
+      }
+
+      if (eventName === 'progress') {
         updateStep(payload.step, payload.status, payload.message)
-      } else if (payload.type === 'done') {
+      } else if (eventName === 'done') {
         status.type = 'success'
-        status.message = `迁移完成：${payload.result?.data?.zipPath || '已上传并解压'}`
-      } else if (payload.type === 'error') {
+        status.message = payload.message || '迁移完成'
+        updateStep('done', 'success')
+        loading.value = false
+      } else if (eventName === 'error') {
         status.type = 'error'
         status.message = payload.message || '迁移失败'
+        if (payload.step) {
+          updateStep(payload.step, 'error', payload.message)
+        }
+        loading.value = false
+      }
+    }
+
+    const handleLine = (line: string) => {
+      const trimmed = line.replace(/\r$/, '')
+      if (!trimmed) {
+        dispatchEvent()
+        return
+      }
+
+      if (trimmed.startsWith('event:')) {
+        eventType = trimmed.slice(6).trim()
+        return
+      }
+
+      if (trimmed.startsWith('data:')) {
+        dataLines.push(trimmed.slice(5).trim())
       }
     }
 
@@ -170,27 +208,13 @@ const handleMigrate = async () => {
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
-
-      lines.forEach((line) => {
-        const trimmed = line.trim()
-        if (!trimmed) {
-          return
-        }
-        try {
-          handlePayload(JSON.parse(trimmed))
-        } catch {
-          return
-        }
-      })
+      lines.forEach(handleLine)
     }
 
     if (buffer.trim()) {
-      try {
-        handlePayload(JSON.parse(buffer.trim()))
-      } catch {
-        // ignore invalid trailing data
-      }
+      buffer.split('\n').forEach(handleLine)
     }
+    dispatchEvent()
   } catch (error: any) {
     status.type = 'error'
     status.message = error?.message || '迁移失败'

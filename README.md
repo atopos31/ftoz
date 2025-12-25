@@ -7,7 +7,7 @@
 
 ## 应用说明
 
-将本地目录打包并迁移到 ZimaOS，支持登录、上传、解压与清理的完整流程。
+将本地目录逐个文件迁移到 ZimaOS，支持登录、扫描、上传与进度查询。
 
 [更新日志](CHANGELOG.md)
 
@@ -15,7 +15,7 @@
 
 ## 本地运行
 
-> 需要 Node.js 18+（原生 fetch），并确保系统存在 `zip` 命令。
+> 需要 Node.js 18+（原生 fetch）。
 
 ```bash
 npm run install
@@ -63,7 +63,9 @@ POST /var/apps/ftoz/target/server/api?_api=migrate
 说明：
 - `storage` 为空时，上传路径为 `/media`；否则为 `/media/<storage>`
 - `source` 取值：`personal`（个人空间 `/vol1/1000`）或 `team`（团队空间 `/vol1/@team`）
-- 默认打包目录为 `/vol1/1000`，可通过设置 `SOURCE_DIR` 环境变量修改
+- 默认迁移目录为 `/vol1/1000`，可通过设置 `SOURCE_DIR` 环境变量修改
+
+接口采用 SSE 返回实时进度（Content-Type: text/event-stream）。
 
 ## 用户使用
 ！ 现在只支持第一个存储空间
@@ -74,11 +76,10 @@ POST /var/apps/ftoz/target/server/api?_api=migrate
 3. 选择迁移空间（个人空间或团队空间）。
 4. 点击“开始迁移”，等待进度完成。
 ![alt text](image-2.png)
-5. 迁移完成后，文件将解压到 `/media/<storage>/AppData`（未填写 `storage` 时为 `/media/AppData`）。
+5. 迁移完成后，文件将按原目录结构同步到 `/media/<storage>`（未填写 `storage` 时为 `/media`）。
 
 说明：
-- 应用会将 `/vol1/1000` 打包并迁移，如需变更打包目录可设置 `SOURCE_DIR` 环境变量。
-- ZIP 上传后会自动解压并删除临时文件，文件名会包含 `personal` 或 `team` 以便区分。
+- 应用会将 `/vol1/1000` 逐文件迁移，如需变更迁移目录可设置 `SOURCE_DIR` 环境变量。
 
 ## 接口调用（可选）
 
