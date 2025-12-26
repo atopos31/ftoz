@@ -50,3 +50,6 @@ adapter.development.js
 backend/src/public
 backend/node_modules
 ftoz.fpk
+
+# Go
+backend-go/bin/
