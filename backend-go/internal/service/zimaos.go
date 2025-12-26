@@ -132,8 +132,8 @@ func (c *ZimaOSClient) UploadFile(baseURL, token, remoteDir, filename, localPath
 	req.Header.Set("Authorization", token)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	// 上传可能需要更长时间
-	uploadClient := &http.Client{Timeout: 5 * time.Minute}
+	// 上传不设置超时，避免大文件上传失败
+	uploadClient := &http.Client{}
 	resp, err := uploadClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("上传请求失败: %w", err)
