@@ -9,6 +9,7 @@ import (
 // Handler 统一请求处理器
 type Handler struct {
 	migrateHandler *MigrateHandler
+	statusHandler  *StatusHandler
 	dirHandler     *DirHandler
 	readHandler    *ReadHandler
 	saveHandler    *SaveHandler
@@ -18,6 +19,7 @@ type Handler struct {
 func New() *Handler {
 	return &Handler{
 		migrateHandler: NewMigrateHandler(),
+		statusHandler:  NewStatusHandler(),
 		dirHandler:     NewDirHandler(),
 		readHandler:    NewReadHandler(),
 		saveHandler:    NewSaveHandler(),
@@ -27,6 +29,11 @@ func New() *Handler {
 // Migrate 迁移接口
 func (h *Handler) Migrate(c *gin.Context) {
 	h.migrateHandler.Handle(c)
+}
+
+// Status 状态查询接口
+func (h *Handler) Status(c *gin.Context) {
+	h.statusHandler.Handle(c)
 }
 
 // Dir 目录读取接口
@@ -54,6 +61,8 @@ func (h *Handler) Dispatch(c *gin.Context) {
 	switch api {
 	case "migrate":
 		h.Migrate(c)
+	case "status":
+		h.Status(c)
 	case "dir":
 		h.Dir(c)
 	case "read":
@@ -74,6 +83,8 @@ func (h *Handler) HandleAPI(w http.ResponseWriter, r *http.Request, api string) 
 	switch api {
 	case "migrate":
 		h.migrateHandler.HandleHTTP(w, r)
+	case "status":
+		h.statusHandler.HandleHTTP(w, r)
 	case "dir":
 		h.dirHandler.HandleHTTP(w, r)
 	case "read":

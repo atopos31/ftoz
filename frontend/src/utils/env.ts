@@ -10,3 +10,7 @@ export const USER_CONFIG_PATH = IS_DEV
 export const MIGRATE_URL = IS_DEV
   ? 'http://127.0.0.1:17746/migrate'
   : '/cgi/ThirdParty/ftoz/index.cgi?_api=migrate'
+
+export const STATUS_URL = IS_DEV
+  ? 'http://127.0.0.1:17746/status'
+  : '/cgi/ThirdParty/ftoz/index.cgi?_api=status'

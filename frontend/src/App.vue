@@ -57,7 +57,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 
-import { MIGRATE_URL } from '@/utils/env'
+import { MIGRATE_URL, STATUS_URL } from '@/utils/env'
 
 const loading = ref(false)
 const status = reactive({ message: '', type: 'info' as 'info' | 'error' | 'success' })
@@ -90,7 +90,7 @@ const updateStep = (key: string, statusValue: string, message?: string) => {
     return
   }
 
-  if (statusValue === 'start') {
+  if (statusValue === 'start' || statusValue === 'running') {
     step.status = 'active'
   } else if (statusValue === 'success') {
     step.status = 'success'
@@ -100,6 +100,57 @@ const updateStep = (key: string, statusValue: string, message?: string) => {
 
   if (message) {
     step.message = message
+  }
+}
+
+const pollStatus = async (taskId: string): Promise<void> => {
+  const url = STATUS_URL.includes('?')
+    ? `${STATUS_URL}&taskId=${taskId}`
+    : `${STATUS_URL}?taskId=${taskId}`
+
+  while (true) {
+    try {
+      const response = await fetch(url)
+      const result = await response.json()
+
+      if (result.code !== 200) {
+        throw new Error(result.msg || '获取状态失败')
+      }
+
+      const data = result.data
+      if (!data) {
+        throw new Error('状态数据为空')
+      }
+
+      // 更新步骤状态
+      if (data.step) {
+        updateStep(data.step, data.status, data.message)
+      }
+
+      // 检查是否完成
+      if (data.status === 'success') {
+        status.type = 'success'
+        status.message = data.message || '迁移完成'
+        updateStep('done', 'success')
+        break
+      }
+
+      if (data.status === 'error') {
+        status.type = 'error'
+        status.message = data.error || data.message || '迁移失败'
+        if (data.step) {
+          updateStep(data.step, 'error', data.error || data.message)
+        }
+        break
+      }
+
+      // 等待 1 秒后继续轮询
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    } catch (error: any) {
+      status.type = 'error'
+      status.message = error?.message || '获取状态失败'
+      break
+    }
   }
 }
 
@@ -114,6 +165,7 @@ const handleMigrate = async () => {
   resetSteps()
 
   try {
+    // 1. 发起迁移请求，获取任务ID
     const response = await fetch(MIGRATE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -126,95 +178,19 @@ const handleMigrate = async () => {
       }),
     })
 
-    const contentType = response.headers.get('Content-Type') || ''
-    const isSse = contentType.includes('text/event-stream')
+    const result = await response.json()
 
-    if (!response.body || !isSse) {
-      const result = await response.json()
-      if (!response.ok || result.code !== 200) {
-        throw new Error(result.msg || '迁移失败')
-      }
-
-      status.type = 'success'
-      status.message = result.msg || '迁移完成'
-      steps.forEach((step) => (step.status = 'success'))
-      return
+    if (!response.ok || result.code !== 200) {
+      throw new Error(result.msg || '启动迁移失败')
     }
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let eventType = ''
-    let dataLines: string[] = []
-
-    const dispatchEvent = () => {
-      if (!dataLines.length) {
-        eventType = ''
-        return
-      }
-
-      const dataStr = dataLines.join('\n')
-      dataLines = []
-      const eventName = eventType || 'message'
-      eventType = ''
-
-      let payload: any
-      try {
-        payload = JSON.parse(dataStr)
-      } catch {
-        return
-      }
-
-      if (eventName === 'progress') {
-        updateStep(payload.step, payload.status, payload.message)
-      } else if (eventName === 'done') {
-        status.type = 'success'
-        status.message = payload.message || '迁移完成'
-        updateStep('done', 'success')
-        loading.value = false
-      } else if (eventName === 'error') {
-        status.type = 'error'
-        status.message = payload.message || '迁移失败'
-        if (payload.step) {
-          updateStep(payload.step, 'error', payload.message)
-        }
-        loading.value = false
-      }
+    const taskId = result.data?.taskId
+    if (!taskId) {
+      throw new Error('未获取到任务ID')
     }
 
-    const handleLine = (line: string) => {
-      const trimmed = line.replace(/\r$/, '')
-      if (!trimmed) {
-        dispatchEvent()
-        return
-      }
-
-      if (trimmed.startsWith('event:')) {
-        eventType = trimmed.slice(6).trim()
-        return
-      }
-
-      if (trimmed.startsWith('data:')) {
-        dataLines.push(trimmed.slice(5).trim())
-      }
-    }
-
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) {
-        break
-      }
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      lines.forEach(handleLine)
-    }
-
-    if (buffer.trim()) {
-      buffer.split('\n').forEach(handleLine)
-    }
-    dispatchEvent()
+    // 2. 轮询获取迁移状态
+    await pollStatus(taskId)
   } catch (error: any) {
     status.type = 'error'
     status.message = error?.message || '迁移失败'

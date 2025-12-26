@@ -1,21 +1,27 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
+	"time"
 
 	"ftoz/internal/model"
-	"ftoz/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-const DefaultSourceDir = "/vol1/1000"
+const (
+	DefaultSourceDir = "/vol1/1000"
+	StatusDir        = "/tmp"
+	WorkerPath       = "/var/apps/ftoz/target/server/worker"
+)
 
 var SourceMap = map[string]model.SourceInfo{
 	"personal": {Dir: "/vol1/1000", Label: "personal"},
@@ -23,17 +29,11 @@ var SourceMap = map[string]model.SourceInfo{
 }
 
 // MigrateHandler 迁移处理器
-type MigrateHandler struct {
-	zimaClient *service.ZimaOSClient
-	scanner    *service.Scanner
-}
+type MigrateHandler struct{}
 
 // NewMigrateHandler 创建迁移处理器
 func NewMigrateHandler() *MigrateHandler {
-	return &MigrateHandler{
-		zimaClient: service.NewZimaOSClient(),
-		scanner:    service.NewScanner(),
-	}
+	return &MigrateHandler{}
 }
 
 // Handle Gin 处理函数
@@ -88,180 +88,44 @@ func (h *MigrateHandler) handleMigrate(w http.ResponseWriter, req *model.Migrate
 		return
 	}
 
-	// 设置 SSE 响应头
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	// 生成任务ID
+	taskId := generateTaskId()
 
-	// 获取 Flusher
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		h.writeJSON(w, 500, "不支持流式响应", nil)
-		return
+	// 创建初始状态文件
+	status := model.TaskStatus{
+		TaskID:     taskId,
+		Status:     "pending",
+		Message:    "任务已创建，等待执行",
+		StartTime:  time.Now().Unix(),
+		UpdateTime: time.Now().Unix(),
 	}
-	flusher.Flush()
-
-	// 执行迁移
-	h.runMigration(w, flusher, req, sourceInfo)
-}
-
-func (h *MigrateHandler) runMigration(w http.ResponseWriter, flusher http.Flusher, req *model.MigrateRequest, sourceInfo *model.SourceInfo) {
-	storagePath := "/media"
-	if req.Storage != "" {
-		storagePath = "/media/" + strings.Trim(req.Storage, "/")
-	}
-
-	currentStep := "login"
-
-	// 1. 登录
-	h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-		Step:    "login",
-		Status:  "start",
-		Message: "正在登录 ZimaOS...",
-	})
-
-	token, err := h.zimaClient.Login(req.BaseURL, req.Username, req.Password)
-	if err != nil {
-		h.sendEvent(w, flusher, "error", model.ErrorEvent{
-			Step:    currentStep,
-			Message: err.Error(),
-		})
+	if err := writeStatusFile(taskId, &status); err != nil {
+		h.writeJSON(w, 500, "创建状态文件失败: "+err.Error(), nil)
 		return
 	}
 
-	h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-		Step:    "login",
-		Status:  "success",
-		Message: "登录成功",
-	})
+	// 启动后台进程
+	paramsJson, _ := json.Marshal(req)
+	cmd := exec.Command(WorkerPath, taskId, string(paramsJson))
 
-	// 2. 扫描目录
-	currentStep = "scan"
-	h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-		Step:    "scan",
-		Status:  "start",
-		Message: "正在扫描目录...",
-	})
+	// 设置进程独立运行，不受父进程影响
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 
-	files, dirs, err := h.scanner.Scan(sourceInfo.Dir)
-	if err != nil {
-		h.sendEvent(w, flusher, "error", model.ErrorEvent{
-			Step:    currentStep,
-			Message: err.Error(),
-		})
+	if err := cmd.Start(); err != nil {
+		// 更新状态为错误
+		status.Status = "error"
+		status.Error = "启动后台进程失败: " + err.Error()
+		status.UpdateTime = time.Now().Unix()
+		writeStatusFile(taskId, &status)
+
+		h.writeJSON(w, 500, "启动迁移任务失败: "+err.Error(), nil)
 		return
 	}
 
-	totalFiles := len(files)
-	h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-		Step:       "scan",
-		Status:     "success",
-		Message:    fmt.Sprintf("扫描完成：%d 个文件", totalFiles),
-		TotalFiles: totalFiles,
-	})
-
-	// 3. 创建远程目录
-	currentStep = "upload"
-	supportsMkdir := true
-	createdDirs := make(map[string]bool)
-
-	// 按路径长度排序，确保父目录先创建
-	sortedDirs := h.sortDirsByDepth(dirs)
-
-	for _, relDir := range sortedDirs {
-		if relDir == "" || createdDirs[relDir] {
-			continue
-		}
-		relPosix := toPosixPath(relDir)
-		remoteDir := storagePath + "/" + relPosix
-
-		if supportsMkdir {
-			err := h.zimaClient.CreateDir(req.BaseURL, token, remoteDir)
-			if err != nil {
-				if strings.Contains(err.Error(), "404") {
-					supportsMkdir = false
-				} else {
-					h.sendEvent(w, flusher, "error", model.ErrorEvent{
-						Step:    currentStep,
-						Message: err.Error(),
-					})
-					return
-				}
-			}
-		}
-		createdDirs[relDir] = true
-	}
-
-	// 4. 上传文件
-	startMsg := "开始上传文件..."
-	if totalFiles == 0 {
-		startMsg = "无需上传文件"
-	}
-	h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-		Step:       "upload",
-		Status:     "start",
-		Message:    startMsg,
-		TotalFiles: totalFiles,
-	})
-
-	for i, relPath := range files {
-		relPosix := toPosixPath(relPath)
-		fullPath := filepath.Join(sourceInfo.Dir, relPath)
-		dirName := filepath.Dir(relPosix)
-
-		remoteDir := storagePath
-		if dirName != "." {
-			remoteDir = storagePath + "/" + dirName
-		}
-		filename := filepath.Base(relPosix)
-
-		h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-			Step:             "upload",
-			Status:           "start",
-			Message:          fmt.Sprintf("正在上传 %d/%d", i+1, totalFiles),
-			CurrentFile:      relPosix,
-			TransferredFiles: i,
-			TotalFiles:       totalFiles,
-		})
-
-		err := h.zimaClient.UploadFile(req.BaseURL, token, remoteDir, filename, fullPath)
-		if err != nil {
-			h.sendEvent(w, flusher, "error", model.ErrorEvent{
-				Step:    currentStep,
-				Message: err.Error(),
-			})
-			return
-		}
-
-		h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-			Step:             "upload",
-			Status:           "start",
-			Message:          fmt.Sprintf("正在上传 %d/%d", i+1, totalFiles),
-			CurrentFile:      relPosix,
-			TransferredFiles: i + 1,
-			TotalFiles:       totalFiles,
-		})
-	}
-
-	h.sendEvent(w, flusher, "progress", model.ProgressEvent{
-		Step:             "upload",
-		Status:           "success",
-		Message:          "文件上传完成",
-		TransferredFiles: totalFiles,
-		TotalFiles:       totalFiles,
-	})
-
-	// 5. 完成
-	h.sendEvent(w, flusher, "done", model.DoneEvent{
-		Message: "迁移完成",
-		Result: model.MigrateResult{
-			DstPath:    storagePath,
-			SourceDir:  sourceInfo.Dir,
-			SourceType: sourceInfo.Label,
-			TotalFiles: totalFiles,
-		},
-	})
+	// 立即返回任务ID
+	h.writeJSON(w, 200, "迁移任务已启动", gin.H{"taskId": taskId})
 }
 
 func (h *MigrateHandler) validateRequest(req *model.MigrateRequest) error {
@@ -305,22 +169,6 @@ func (h *MigrateHandler) resolveSource(sourceType, space string) *model.SourceIn
 	return &model.SourceInfo{Dir: envDir, Label: "custom"}
 }
 
-func (h *MigrateHandler) sortDirsByDepth(dirs []string) []string {
-	sorted := make([]string, len(dirs))
-	copy(sorted, dirs)
-	sort.Slice(sorted, func(i, j int) bool {
-		return len(sorted[i]) < len(sorted[j])
-	})
-	return sorted
-}
-
-func (h *MigrateHandler) sendEvent(w http.ResponseWriter, flusher http.Flusher, eventType string, data interface{}) {
-	payload, _ := json.Marshal(data)
-	fmt.Fprintf(w, "event: %s\n", eventType)
-	fmt.Fprintf(w, "data: %s\n\n", payload)
-	flusher.Flush()
-}
-
 func (h *MigrateHandler) writeJSON(w http.ResponseWriter, code int, msg string, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(model.Response{
@@ -330,6 +178,33 @@ func (h *MigrateHandler) writeJSON(w http.ResponseWriter, code int, msg string, 
 	})
 }
 
-func toPosixPath(p string) string {
-	return strings.ReplaceAll(p, "\\", "/")
+// generateTaskId 生成任务ID
+func generateTaskId() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// writeStatusFile 写入状态文件
+func writeStatusFile(taskId string, status *model.TaskStatus) error {
+	statusFile := filepath.Join(StatusDir, fmt.Sprintf("ftoz-migrate-%s.json", taskId))
+	data, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(statusFile, data, 0644)
+}
+
+// readStatusFile 读取状态文件
+func readStatusFile(taskId string) (*model.TaskStatus, error) {
+	statusFile := filepath.Join(StatusDir, fmt.Sprintf("ftoz-migrate-%s.json", taskId))
+	data, err := os.ReadFile(statusFile)
+	if err != nil {
+		return nil, err
+	}
+	var status model.TaskStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
 }

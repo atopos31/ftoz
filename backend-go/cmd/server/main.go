@@ -22,6 +22,7 @@ func main() {
 
 	// 路由注册
 	r.POST("/migrate", h.Migrate)
+	r.GET("/status", h.Status)
 	r.GET("/dir", h.Dir)
 	r.POST("/dir", h.Dir)
 	r.GET("/read", h.Read)

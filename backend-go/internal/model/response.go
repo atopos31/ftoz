@@ -42,3 +42,18 @@ type ErrorEvent struct {
 	Step    string `json:"step"`
 	Message string `json:"message"`
 }
+
+// TaskStatus 迁移任务状态 (用于后台任务 + 轮询模式)
+type TaskStatus struct {
+	TaskID           string         `json:"taskId"`
+	Status           string         `json:"status"` // pending/running/success/error
+	Step             string         `json:"step"`   // login/scan/upload
+	Message          string         `json:"message"`
+	CurrentFile      string         `json:"currentFile,omitempty"`
+	TransferredFiles int            `json:"transferredFiles"`
+	TotalFiles       int            `json:"totalFiles"`
+	Error            string         `json:"error,omitempty"`
+	Result           *MigrateResult `json:"result,omitempty"`
+	StartTime        int64          `json:"startTime"`
+	UpdateTime       int64          `json:"updateTime"`
+}
